@@ -1,0 +1,94 @@
+#include <ESP32Servo.h>
+
+// --- Create 3 Servo Objects ---
+Servo servo1;
+Servo servo2;
+Servo servo3;
+
+// --- Define GPIO Pins on ESP32 ---
+const int servo1Pin = 13;
+const int servo2Pin = 14;
+const int servo3Pin = 15;
+
+// --- Demo Motion Parameters ---
+float demoHeave = 0;   // Vertical Z-axis motion
+float demoPitch = 0;   // Tilt front-to-back
+float demoRoll = 0;    // Tilt side-to-side
+
+// Center position for the servos (usually 90 degrees)
+const int servoCenter = 90;
+
+void setup() {
+  Serial.begin(115200);
+
+  // Allow allocation of all timers
+  ESP32PWM::allocateTimer(0);
+  ESP32PWM::allocateTimer(1);
+  ESP32PWM::allocateTimer(2);
+  ESP32PWM::allocateTimer(3);
+
+  // Attach servos to pins
+  servo1.attach(servo1Pin);
+  servo2.attach(servo2Pin);
+  servo3.attach(servo3Pin);
+
+  // Move all servos to the center "home" position on startup
+  Serial.println("Moving to home position...");
+  servo1.write(servoCenter);
+  servo2.write(servoCenter);
+  servo3.write(servoCenter);
+  delay(1000);
+  Serial.println("Demo starting!");
+}
+
+void loop() {
+  // Get a time value that loops. millis() returns milliseconds.
+  // Using sine and cosine creates smooth, continuous, looping motions.
+  float time = millis() / 1000.0; // Time in seconds
+
+  // --- 1. Calculate Demo "Motions" ---
+  
+  // "Heave" (Up/Down Motion)
+  // Creates a smooth "breathing" motion.
+  // This will move all 3 servos together by up to 20 degrees.
+  demoHeave = 20.0 * sin(time);
+
+  // "Roll" (Side-to-Side Tilt)
+  // Tilts left and right.
+  demoRoll = 25.0 * cos(time);
+  
+  // "Pitch" (Front-to-Back Tilt)
+  // Tilts forward and backward on a different speed.
+  demoPitch = 25.0 * sin(time * 0.5);
+
+  // --- 2. Calculate Servo Angles (Simplified Demo Logic) ---
+  
+  // This is NOT the real kinematics!
+  // This is a simple mapping to show a coordinated motion.
+  // We'll assume Servo 1 is at the back, Servo 2/3 are at the front-left/right.
+  
+  // Servo 1 (Back): Controls PITCH
+  int angle1 = servoCenter - demoPitch + demoHeave;
+
+  // Servo 2 (Front-Left): Controls PITCH and ROLL
+  int angle2 = servoCenter + demoPitch + demoRoll + demoHeave;
+
+  // Servo 3 (Front-Right): Controls PITCH and ROLL
+  int angle3 = servoCenter + demoPitch - demoRoll + demoHeave;
+
+  // --- 3. Write Angles to Servos ---
+
+  // Constrain the final angle to a safe range (e.g., 30 to 150)
+  // to prevent your linkages from breaking.
+  // !! ADJUST THESE 30 and 150 VALUES for your hardware !!
+  servo1.write(constrain(angle1, 30, 150));
+  servo2.write(constrain(angle2, 30, 150));
+  servo3.write(constrain(angle3, 30, 150));
+
+  // Print the values to the Serial Monitor to see what's happening
+  Serial.printf("Pitch: %.0f, Roll: %.0f, Heave: %.0f  =>  S1: %d, S2: %d, S3: %d\n",
+                demoPitch, demoRoll, demoHeave, angle1, angle2, angle3);
+
+  // Small delay to keep things smooth
+  delay(20);
+}
