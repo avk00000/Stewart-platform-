@@ -1,0 +1,74 @@
+#include <ESP32Servo.h>
+
+Servo servo[3];
+
+// Servo pins (change to your wiring)
+const int SERVO_PIN[3] = {16, 17, 18};
+
+// Safe servo range
+const int MIN_ANGLE = 0;
+const int MAX_ANGLE = 90;
+
+void setup() {
+  Serial.begin(115200);
+  delay(200);
+
+  // Attach all servos (50 Hz, typical servo)
+  for (int i = 0; i < 3; i++) {
+    servo[i].setPeriodHertz(50);
+    servo[i].attach(SERVO_PIN[i], 500, 2500);
+  }
+
+  // -----------------------------------------
+  // HOMING: all servos → 0°
+  // -----------------------------------------
+  Serial.println("Homing to 0 degrees...");
+
+  for (int a = 90; a >= 0; a--) {
+    for (int i = 0; i < 3; i++) {
+      servo[i].write(a);
+    }
+    delay(10);
+  }
+
+  Serial.println("Home reached. Starting 3DOF demo.");
+  delay(500);
+}
+
+void loop() {
+  float t = millis() * 0.001;
+
+  // --------------------------------------------------
+  // 3 DOF demo motions (no IK)
+  // These are just arbitrary sinusoidal patterns
+  // --------------------------------------------------
+
+  // Pitch-like motion (servo 0)
+  float pitchAngle = 30 + 25 * sin(t * 1.2);  // moves between ~5° to 55°
+
+  // Roll-like motion (servo 1)
+  float rollAngle = 30 + 25 * sin(t * 0.9 + 1.5);
+
+  // Z (up/down)-like motion (servo 2)
+  float zAngle = 30 + 25 * sin(t * 0.7 + 3.2);
+
+  // Clamp to safe range
+  pitchAngle = constrain(pitchAngle, MIN_ANGLE, MAX_ANGLE);
+  rollAngle  = constrain(rollAngle, MIN_ANGLE, MAX_ANGLE);
+  zAngle     = constrain(zAngle, MIN_ANGLE, MAX_ANGLE);
+
+  // Write to servos
+  servo[0].write(pitchAngle);
+  servo[1].write(rollAngle);
+  servo[2].write(zAngle);
+
+  // Debug print
+  static unsigned long last = 0;
+  if (millis() - last > 500) {
+    last = millis();
+    Serial.printf("S0=%.1f°  S1=%.1f°  S2=%.1f°\n",
+                  pitchAngle, rollAngle, zAngle);
+  }
+
+  delay(20);  // ~50 Hz update rate
+}
