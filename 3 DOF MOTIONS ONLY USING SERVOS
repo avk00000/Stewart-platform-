@@ -1,74 +1,125 @@
 #include <ESP32Servo.h>
 
-Servo servo[3];
+// --- Create 3 Servo Objects ---
+Servo servo1;
+Servo servo2;
+Servo servo3;
 
-// Servo pins (change to your wiring)
-const int SERVO_PIN[3] = {16, 17, 18};
+// --- Define GPIO Pins on ESP32 ---
+const int servo1Pin = 16;
+const int servo2Pin = 17;
+const int servo3Pin = 18;
 
-// Safe servo range
-const int MIN_ANGLE = 0;
-const int MAX_ANGLE = 90;
+// --- Demo Motion Parameters ---
+float demoHeave = 0;   // Vertical Z-axis motion
+float demoPitch = 0;   // Tilt front-to-back
+float demoRoll = 0;    // Tilt side-to-side
+
+// --- NEW MOTION LOGIC BASED ON 0-90 DEGREE RANGE ---
+const int HOME_POSITION = 0;
+const int MOTION_CENTER = 45;
+const int HEAVE_RANGE = 10;
+const int PITCH_RANGE = 15;
+const int ROLL_RANGE = 15;
+// ---------------------------------------------------
+
+// --- Speed Control ---
+const float SPEED_MULTIPLIER = 2.0; 
+// ---------------------
+
+// --- NEW SOFT-START VARIABLE ---
+bool isFirstLoop = true;
+// -------------------------------
+
 
 void setup() {
   Serial.begin(115200);
-  delay(200);
 
-  // Attach all servos (50 Hz, typical servo)
-  for (int i = 0; i < 3; i++) {
-    servo[i].setPeriodHertz(50);
-    servo[i].attach(SERVO_PIN[i], 500, 2500);
+  // Allow allocation of all timers for ESP32 servos
+  ESP32PWM::allocateTimer(0);
+  ESP32PWM::allocateTimer(1);
+  ESP32PWM::allocateTimer(2);
+  ESP32PWM::allocateTimer(3);
+
+  // Attach servos to pins
+  servo1.attach(servo1Pin);
+  servo2.attach(servo2Pin);
+  servo3.attach(servo3Pin);
+
+  // --- SLOWLY MOVE TO HOME POSITION ---
+  Serial.println("Moving slowly to home position (0 degrees)...");
+  for (int pos = 45; pos >= HOME_POSITION; pos--) { 
+    servo1.write(pos);
+    servo2.write(pos);
+    servo3.write(pos);
+    delay(20); // 20ms delay per degree = slow sweep
   }
+  
+  // --- Hold at Home Position ---
+  Serial.println("Holding at 0-degree home position...");
+  delay(2000); // 2-second pause at home
+  // ------------------------
 
-  // -----------------------------------------
-  // HOMING: all servos → 0°
-  // -----------------------------------------
-  Serial.println("Homing to 0 degrees...");
-
-  for (int a = 90; a >= 0; a--) {
-    for (int i = 0; i < 3; i++) {
-      servo[i].write(a);
-    }
-    delay(10);
-  }
-
-  Serial.println("Home reached. Starting 3DOF demo.");
-  delay(500);
+  Serial.println("Demo starting!");
 }
 
 void loop() {
-  float t = millis() * 0.001;
+  
+  float time = millis() / 1000.0; // Time in seconds
 
-  // --------------------------------------------------
-  // 3 DOF demo motions (no IK)
-  // These are just arbitrary sinusoidal patterns
-  // --------------------------------------------------
+  // --- 1. Calculate Demo "Motions" ---
+  demoHeave = HEAVE_RANGE * sin(time * SPEED_MULTIPLIER);
+  demoRoll = ROLL_RANGE * cos(time * SPEED_MULTIPLIER);
+  demoPitch = PITCH_RANGE * sin(time * 0.5 * SPEED_MULTIPLIER);
 
-  // Pitch-like motion (servo 0)
-  float pitchAngle = 30 + 25 * sin(t * 1.2);  // moves between ~5° to 55°
+  // --- 2. Calculate Servo Angles ---
+  int angle1 = MOTION_CENTER - demoPitch + demoHeave;
+  int angle2 = MOTION_CENTER + demoPitch + demoRoll + demoHeave;
+  int angle3 = MOTION_CENTER + demoPitch - demoRoll + demoHeave;
+  
+  // --- 3. Constrain final angles to our safe 0-90 range ---
+  int targetAngle1 = constrain(angle1, 0, 90);
+  int targetAngle2 = constrain(angle2, 0, 90);
+  int targetAngle3 = constrain(angle3, 0, 90);
 
-  // Roll-like motion (servo 1)
-  float rollAngle = 30 + 25 * sin(t * 0.9 + 1.5);
 
-  // Z (up/down)-like motion (servo 2)
-  float zAngle = 30 + 25 * sin(t * 0.7 + 3.2);
+  // --- 4. NEW: Soft Start Logic ---
+  if (isFirstLoop) {
+    Serial.println("Performing soft start to first position...");
+    
+    // This is a one-time sweep from HOME (0) to the first "dance" position.
+    // We read the current angle (0) and sweep to the target.
+    // Note: We use 100 steps to make it smooth.
+    
+    int currentAngle1 = servo1.read();
+    int currentAngle2 = servo2.read();
+    int currentAngle3 = servo3.read();
 
-  // Clamp to safe range
-  pitchAngle = constrain(pitchAngle, MIN_ANGLE, MAX_ANGLE);
-  rollAngle  = constrain(rollAngle, MIN_ANGLE, MAX_ANGLE);
-  zAngle     = constrain(zAngle, MIN_ANGLE, MAX_ANGLE);
-
-  // Write to servos
-  servo[0].write(pitchAngle);
-  servo[1].write(rollAngle);
-  servo[2].write(zAngle);
-
-  // Debug print
-  static unsigned long last = 0;
-  if (millis() - last > 500) {
-    last = millis();
-    Serial.printf("S0=%.1f°  S1=%.1f°  S2=%.1f°\n",
-                  pitchAngle, rollAngle, zAngle);
+    for (int i = 0; i <= 100; i++) {
+      // map(i, 0, 100, start, end)
+      servo1.write(map(i, 0, 100, currentAngle1, targetAngle1));
+      servo2.write(map(i, 0, 100, currentAngle2, targetAngle2));
+      servo3.write(map(i, 0, 100, currentAngle3, targetAngle3));
+      delay(1); // 10ms per step = 1 second total sweep
+    }
+    
+    isFirstLoop = false; // Never run this again
+    Serial.println("Soft start complete. Starting demo loop.");
+    
+  } else {
+    // --- 5. Normal "Dance" Loop ---
+    // After the first loop, we just jump to the new angle
+    // because the servos are already in motion.
+    servo1.write(targetAngle1);
+    servo2.write(targetAngle2);
+    servo3.write(targetAngle3);
   }
 
-  delay(20);  // ~50 Hz update rate
+  // Print the values to the Serial Monitor to see what's happening
+  Serial.printf("Pitch: %.0f, Roll: %.0f, Heave: %.0f  =>  S1: %d, S2: %d, S3: %d\n",
+                demoPitch, demoRoll, demoHeave, 
+                targetAngle1, targetAngle2, targetAngle3);
+
+  // Small delay to keep things smooth
+  delay(1);
 }
